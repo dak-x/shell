@@ -99,7 +99,6 @@ void exit_routine();
 /* Adding support for I/O redirection and spawning piped processes */
 
 /* Hold info of all processes to spawn */
-
 struct PipeList {
   struct PipeList *Next;
   char *cmd;
@@ -107,7 +106,9 @@ struct PipeList {
 };
 
 struct PipeList decode_pipe(char *);
-void exec_pipe();
+void exec_pipe(struct PipeList);
+
+// Get redirection tokens
 
 char *get_in_redir(char *);
 char *get_out_redir(char *);
@@ -158,6 +159,9 @@ int main(int argc, char *argv[]) {
     got_eof = 0;
   }
 }
+
+/* Function Definations */
+/* ==================================== */
 
 // Get a Proc struct from an string.
 struct Proc from_str(char *cmd) {
@@ -326,8 +330,8 @@ int is_bg(char *cmd) { return cmd[strlen(cmd) - 1] == '&'; }
 /* ==================================== */
 
 // Spawn Process utils
-// Add the given proc to backgrnd process pool.
 
+// Add the given proc to backgrnd process pool.
 void add_bgproc(struct Proc p, int pid) {
 
   signal(SIGCHLD, SIG_IGN);
@@ -382,12 +386,47 @@ void clean_bgpool() {
 // Run a foreground process
 void run_fg(struct Proc p) {
 
+  // Spawn the child
   int PID = fork();
+
   if (PID < (pid_t)0) {
     printf("Cannot Spawn more processes. Exiting...");
     exit_routine();
   } else if (PID == (pid_t)0) {
+
     char *cm = p.proc;
+    char *inp = get_in_redir(cm);
+    char *out = get_out_redir(cm);
+
+    // syntax error: No Token found after '<' or '>'
+    if (inp != NULL && strlen(inp) == 0) {
+      printf("No String Token found after last occurence of '<' \n");
+      _exit(EXIT_FAILURE);
+    }
+    if (out != NULL && strlen(out) == 0) {
+      printf("No String Token found after last occurence of '>' \n");
+      _exit(EXIT_FAILURE);
+    }
+
+    // Set the In file descriptor
+    if (inp != NULL) {
+      FILE *f_in = fopen(inp, "r");
+      if (f_in == NULL) {
+        perror(inp);
+        _exit(EXIT_FAILURE);
+      }
+      dup2(fileno(f_in), STDIN_FILENO);
+    }
+    // Set Out file descriptor
+    if (out != NULL) {
+      FILE *f_out = fopen(out, "w");
+      if (f_out == NULL) {
+        perror(out);
+        _exit(EXIT_FAILURE);
+      }
+      dup2(fileno(f_out), STDOUT_FILENO);
+    }
+
     char *args[MAXARGS];
     int i = 0;
     char *arg = strtok(cm, delim);
@@ -397,13 +436,13 @@ void run_fg(struct Proc p) {
       i++;
     }
     args[i] = NULL;
-
     char *cmd = args[0];
+
     int err = execvp(cmd, args);
     perror(cmd);
     _exit(err);
 
-  } else { // wait for the child to exit
+  } else {
     // Add process to history
     add_his(p, PID);
     int wstatus;
@@ -413,6 +452,8 @@ void run_fg(struct Proc p) {
 
 // Run a background process
 void run_bg(struct Proc p) {
+
+  //Spawn the child
   int PID = fork();
 
   if (PID < (pid_t)0) {
@@ -423,7 +464,41 @@ void run_bg(struct Proc p) {
     setpgid(0, 0);
     // tcsetpgrp(STDIN_FILENO, pgrpid);
     char *cm = p.proc;
-    cm[strlen(cm) - 1] = '\0';
+    cm[strlen(cm) - 1] = '\0'; // remove the '&'
+
+    char *inp = get_in_redir(cm);
+    char *out = get_out_redir(cm);
+
+    // syntax error: No Token found after '<' or '>'
+    if (inp != NULL && strlen(inp) == 0) {
+      printf("No String Token found after last occurence of '<' \n");
+      _exit(EXIT_FAILURE);
+    }
+    if (out != NULL && strlen(out) == 0) {
+      printf("No String Token found after last occurence of '>' \n");
+      _exit(EXIT_FAILURE);
+    }
+
+    // Set the In file descriptor
+    if (inp != NULL) {
+      FILE *f_in = fopen(inp, "r");
+      if (f_in == NULL) {
+        perror(inp);
+        _exit(EXIT_FAILURE);
+      }
+      dup2(fileno(f_in), STDIN_FILENO);
+    }
+    // Set Out file descriptor
+    if (out != NULL) {
+      FILE *f_out = fopen(out, "w");
+      if (f_out == NULL) {
+        perror(out);
+        _exit(EXIT_FAILURE);
+      }
+      dup2(fileno(f_out), STDOUT_FILENO);
+    }
+
+    // get the args
     char *args[MAXARGS];
     int i = 0;
     char *arg = strtok(cm, delim);
@@ -562,13 +637,84 @@ void exec_cmd(char *cmd) {
 
 void handle_sigchild(int signum) { clean_bgpool(); }
 
-// Get the filename for input redirection and replace with filename with spaces
-// in the orig string.
-char *get_in_redir(char *orig) {
-  // First count the length of string needed.
+// is_sep(c) => NOT isalnum(c) {but better}.
+int is_sep(char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>' ||
+         c == '<' || c == '|';
 }
 
+// Get the filename for input redirection and replace with filename with
+// whitespace in the orig string. Returns:
+// ------
+// NULL if '<' not found ,
+// "" is there is not token after '<',
+// String token succeeding the '<'. User must free this allocated string
+char *get_in_redir(char *orig) {
+  // First occurence of '<'
+  char *x = strchr(orig, '<');
+  // '<' not found
+  if (x == NULL)
+    return NULL;
+
+  // store positioon of '<' char
+  char *less_pos = x;
+  x++;
+  while (*x != '\0' && isspace(*x))
+    x++;
+
+  if (*x == '\0' || *x == '>' || *x == '|' || *x == '\r' || *x == '\n')
+    return "";
+
+  // '<' is found
+  // Move to the next white space char and then tokenize between these ends.
+  char *x_cpy = x;
+  while (*x != '\0' && !is_sep(*x)) {
+    x++;
+  }
+
+  char *s = strndup(x_cpy, x - x_cpy);
+  // blank out the string from orig
+  while (x_cpy < x) {
+    *x_cpy = ' ';
+    x_cpy++;
+  }
+  *less_pos = ' ';
+  return s;
+}
 
 // Get the filename for output redirection and replace with filename with spaces
-// in the orig string.
-char *get_out_redir(char *orig) {}
+// in the orig string. Returns:
+// NULL if '>' not found ,
+// "" is there is not token after '>',
+// String token succeeding the '>'. User must free this allocated string.
+char *get_out_redir(char *orig) {
+  // First occurence of '>'
+  char *x = strchr(orig, '>');
+  // '<' not found
+  if (x == NULL)
+    return NULL;
+
+  // store position of '>' char
+  char *less_pos = x;
+  x++;
+  while (*x != '\0' && isspace(*x))
+    x++;
+
+  if (*x == '\0' || *x == '>' || *x == '|' || *x == '\r' || *x == '\n')
+    return "";
+
+  // '>' is found
+  // Move to the next white space char and then tokenize between these ends.
+  char *x_cpy = x;
+  while (*x != '\0' && !is_sep(*x)) {
+    x++;
+  }
+  char *s = strndup(x_cpy, x - x_cpy);
+  // blank out the string from orig
+  while (x_cpy < x) {
+    *x_cpy = ' ';
+    x_cpy++;
+  }
+  *less_pos = ' ';
+  return s;
+}
