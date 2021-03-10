@@ -1,0 +1,10 @@
+PING www.google.com (172.217.160.228) 56(84) bytes of data.
+64 bytes from del03s09-in-f4.1e100.net (172.217.160.228): icmp_seq=1 ttl=119 time=9.36 ms
+64 bytes from del03s09-in-f4.1e100.net (172.217.160.228): icmp_seq=2 ttl=119 time=9.62 ms
+64 bytes from del03s09-in-f4.1e100.net (172.217.160.228): icmp_seq=3 ttl=119 time=10.5 ms
+64 bytes from del03s09-in-f4.1e100.net (172.217.160.228): icmp_seq=4 ttl=119 time=12.5 ms
+64 bytes from del03s09-in-f4.1e100.net (172.217.160.228): icmp_seq=5 ttl=119 time=7.57 ms
+
+--- www.google.com ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4005ms
+rtt min/avg/max/mdev = 7.579/9.946/12.580/1.638 ms

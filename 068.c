@@ -95,6 +95,23 @@ int is_empty(char *);
 int is_integer(char *);
 int is_bg(char *);
 void exit_routine();
+
+/* Adding support for I/O redirection and spawning piped processes */
+
+/* Hold info of all processes to spawn */
+
+struct PipeList {
+  struct PipeList *Next;
+  char *cmd;
+  int pid;
+};
+
+struct PipeList decode_pipe(char *);
+void exec_pipe();
+
+char *get_in_redir(char *);
+char *get_out_redir(char *);
+
 /* ==================================== */
 // All Prototypes Declared.
 
@@ -544,3 +561,14 @@ void exec_cmd(char *cmd) {
 }
 
 void handle_sigchild(int signum) { clean_bgpool(); }
+
+// Get the filename for input redirection and replace with filename with spaces
+// in the orig string.
+char *get_in_redir(char *orig) {
+  // First count the length of string needed.
+}
+
+
+// Get the filename for output redirection and replace with filename with spaces
+// in the orig string.
+char *get_out_redir(char *orig) {}
