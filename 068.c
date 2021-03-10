@@ -105,8 +105,10 @@ struct PipeList {
   int pid;
 };
 
-struct PipeList decode_pipe(char *);
-void exec_pipe(struct PipeList);
+int is_piped(char *);
+struct PipeList *decode_pipe(char *);
+void exec_pipe(char *);
+void free_pipelist(struct PipeList *);
 
 // Get redirection tokens
 
@@ -150,7 +152,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    char *inp = trim(strdup(buff));
+    char *inp = strdup(trim(buff));
     if (is_empty(inp)) {
       continue;
     }
@@ -195,6 +197,7 @@ void add_his(struct Proc p, int pid) {
 void free_his() {
   while (HISHEAD != NULL) {
     struct HisNode *temp = HISHEAD->Next;
+    free(HISHEAD->cmd.proc);
     free(HISHEAD);
     HISHEAD = temp;
   }
@@ -339,7 +342,11 @@ void add_bgproc(struct Proc p, int pid) {
   struct BackGroundPool *temp =
       (struct BackGroundPool *)malloc(sizeof(struct BackGroundPool));
 
-  temp->cmd = p;
+  char *cmd = strdup(p.proc);
+  struct Proc p_cpy;
+  p_cpy.proc = cmd;
+
+  temp->cmd = p_cpy;
   temp->pid = pid;
   temp->terminated = 0;
   temp->Next = NULL;
@@ -377,6 +384,7 @@ void clean_bgpool() {
       printf("Job '%s' has ended\n", curr->Next->cmd.proc);
       struct BackGroundPool *temp = curr->Next;
       curr->Next = temp->Next;
+      free(temp->cmd.proc);
       free(temp);
     }
     curr = curr->Next;
@@ -453,7 +461,7 @@ void run_fg(struct Proc p) {
 // Run a background process
 void run_bg(struct Proc p) {
 
-  //Spawn the child
+  // Spawn the child
   int PID = fork();
 
   if (PID < (pid_t)0) {
@@ -574,7 +582,6 @@ void exec_cmd(char *cmd) {
     if (chdir(dir) == -1) {
       perror(dir);
     } else {
-      // TODO: Fix appropriete history entry
       add_his(p, getpid());
     }
   }
@@ -631,8 +638,15 @@ void exec_cmd(char *cmd) {
 
   // system cmd
   else {
-    exec_sys_cmd(p);
+    if (is_piped(p.proc)) {
+      exec_pipe(p.proc);
+    } else {
+      exec_sys_cmd(p);
+    }
   }
+  // Free some memory leaks.
+  free(cmd_temp);
+  free(cmd);
 }
 
 void handle_sigchild(int signum) { clean_bgpool(); }
@@ -717,4 +731,188 @@ char *get_out_redir(char *orig) {
   }
   *less_pos = ' ';
   return s;
+}
+
+// Checks whether the command has pipes
+int is_piped(char *cmd) { return !(strchr(cmd, '|') == NULL); }
+
+// Make a piped list from given string
+// Returns NULL in case of errors.
+// caller must free cmd.
+struct PipeList *decode_pipe(char *cmd) {
+
+  char *cm = strtok(strdup(cmd), "|");
+  struct PipeList *head = NULL;
+  struct PipeList *curr = head;
+
+  while (cm != NULL) {
+    if (is_empty(trim(cm))) {
+      free_pipelist(head);
+      printf("Expected Command after '|'. \n");
+      return NULL;
+    }
+    struct PipeList *temp = (struct PipeList *)malloc(sizeof(struct PipeList));
+    temp->Next = NULL;
+    temp->pid = -1;
+    temp->cmd = strdup(trim(cm));
+
+    if (head == NULL)
+      head = curr = temp;
+    else {
+      curr->Next = temp;
+      curr = temp;
+    }
+
+    cm = strtok(NULL, "|");
+  }
+
+  free(cm);
+  return head;
+}
+// Execute a piped command.
+void exec_pipe(char *cmd) {
+  struct Proc p;
+  p.proc = cmd;
+
+  struct PipeList *start = decode_pipe(cmd);
+  if (start == NULL) {
+    return;
+  }
+  // Init the structure for the pipe.
+  int pipefd[2];
+  pipefd[0] = -1;
+  pipefd[1] = -1;
+  int r_fd = -1;
+
+  struct PipeList *temp = start;
+  int flg = -1; // Store pid of first process only
+
+  // Spawn all the piped processes in parallel.
+  while (temp != NULL) {
+    // More pipes reqd
+    if (temp->Next != NULL) {
+      if (pipe(pipefd) == -1) {
+        printf("Cannot Open New Pipes. This is very strange. Exiting...");
+        exit_routine();
+      }
+
+    } else {
+      pipefd[0] = -1;
+      pipefd[1] = -1;
+    }
+    // create a pipe
+
+    // I have pipes now appropritely assign them.
+    char *cm = temp->cmd;
+    // Spawn the child.
+    int PID = fork();
+
+    if (PID < (pid_t)0) {
+      printf("Cannot Spawn more processes. Exiting...");
+      exit_routine();
+    } else if (PID == (pid_t)0) {
+      printf("Exec-ed: %s", cm);
+      char *inp = get_in_redir(cm);
+      char *out = get_out_redir(cm);
+
+      // syntax error: No Token found after '<' or '>'
+      if (inp != NULL && strlen(inp) == 0) {
+        printf("No String Token found after last occurence of '<' \n");
+        _exit(EXIT_FAILURE);
+      }
+      if (out != NULL && strlen(out) == 0) {
+        printf("No String Token found after last occurence of '>' \n");
+        _exit(EXIT_FAILURE);
+      }
+
+      // Set the In file descriptor
+      if (inp != NULL) {
+        FILE *f_in = fopen(inp, "r");
+        if (f_in == NULL) {
+          perror(inp);
+          _exit(EXIT_FAILURE);
+        }
+        dup2(fileno(f_in), STDIN_FILENO);
+      }
+      // Set the Out file descriptor
+      if (out != NULL) {
+        FILE *f_out = fopen(out, "w");
+        if (f_out == NULL) {
+          perror(out);
+          _exit(EXIT_FAILURE);
+        }
+        dup2(fileno(f_out), STDOUT_FILENO);
+      }
+      // ================================================
+      // SET THE PIPES. PIPES OVERRIDE THE IO-REDIRECTIONS
+
+      // Also Close other file descriptors as well
+      if (pipefd[0] == -1)
+        close(pipefd[0]);
+
+      // Set the Read fd
+      if (r_fd != -1) {
+        dup2(r_fd, STDIN_FILENO);
+      }
+      // Set the Write fd
+      if (pipefd[1] != -1) {
+        dup2(pipefd[1], STDOUT_FILENO);
+      }
+
+      char *args[MAXARGS];
+      int i = 0;
+      char *arg = strtok(cm, delim);
+      while (i < MAXARGS && arg != NULL) {
+        args[i] = arg;
+        arg = strtok(NULL, delim);
+        i++;
+      }
+      args[i] = NULL;
+      char *cmd = args[0];
+
+      int err = execvp(cmd, args);
+      perror(cmd);
+      _exit(err);
+    } else {
+      // Close not needed file decriptors;
+      if (r_fd != -1)
+        close(r_fd);
+      if (pipefd[1] != -1)
+        close(pipefd[1]);
+
+      // The read end for the next processes to spawn.
+      r_fd = pipefd[0];
+
+      if (flg == -1)
+        flg = PID;
+      temp->pid = PID;
+    }
+    // Only take the first pid.
+    temp = temp->Next;
+  }
+  // Just to be sure.
+  if (r_fd != -1)
+    close(r_fd);
+
+  add_his(p, flg);
+  // Now wait for Each processes to terminate.
+  temp = start;
+  while (temp != NULL) {
+    // printf("waiting proc %s", temp->cmd);
+    waitpid(temp->pid, NULL, 0);
+    temp = temp->Next;
+  }
+
+  free_pipelist(start);
+}
+
+// Free a pipelist
+void free_pipelist(struct PipeList *p) {
+
+  while (p != NULL) {
+    struct PipeList *temp = p->Next;
+    free(p->cmd);
+    free(p);
+    p = temp;
+  }
 }
