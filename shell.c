@@ -1,6 +1,4 @@
-/** Submitted by: DAKSH CHAUHAN
- * Entry No: 2018UCS0068
- * CSL351- Operating Systems
+/* main function is global entry point
  * Shell with IO Redirect and Pipe capabilities
  */
 
