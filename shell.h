@@ -1,13 +1,4 @@
-
-/* SOME CONSTANTS */
-#define MAXARGS 128
-#define MAXBUFF 1024
-#define PIDINV -1
-#define delim " "
-
 /* ==================================== */
-
-void handle_sigchild(int signum);
 
 /* Structure to hold info about a process name and args*/
 struct Proc {
@@ -101,5 +92,8 @@ void free_pipelist(struct PipeList *);
 
 char *get_in_redir(char *);
 char *get_out_redir(char *);
+
+// sig-handler which waits the processes
+void handle_sigchild(int);
 
 /* ==================================== */
