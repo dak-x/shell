@@ -20,6 +20,7 @@ struct BackGroundPool *BGPOOL = NULL, *BGTAIL = NULL;
 char* ROOT;
 int LENROOT;
 char* PROCNAME;
+int HISSIZE = 0;
 
 /* SOME CONSTANTS */
 #define MAXARGS 128
@@ -43,7 +44,6 @@ int main(int argc, char* argv[])
     char buff[MAXBUFF];
     buff[0] = '\0';
     int got_eof = 0;
-    int x;
     // INIT OVER.
 
     while (1) {

@@ -19,7 +19,6 @@ struct HisNode {
   int pid;
 };
 
-int HISSIZE = 0;
 void add_his(struct Proc, int);
 void free_his();
 /* ==================================== */
