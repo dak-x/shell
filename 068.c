@@ -1,6 +1,7 @@
 /** Submitted by: DAKSH CHAUHAN
  * Entry No: 2018UCS0068
  * CSL351- Operating Systems
+ * Shell with IO Redirect and Pipe capabilities
  */
 
 #include <ctype.h>
@@ -74,7 +75,7 @@ void prompt();
 void invalid_cmd(char *);
 void exec_cmd();
 
-// Add foreground and background support
+// Add foreground and background support.
 
 void run_fg(struct Proc);
 void run_bg(struct Proc);
@@ -97,7 +98,12 @@ int is_bg(char *);
 void exit_routine();
 
 /* Adding support for I/O redirection and spawning piped processes */
-
+//
+// Ideally a Piped Command can enclose a simple non-piped command but I
+// was afraid to modify existing code without a working solution.
+// Since now I get expected shell functionality. Merging both non-piped and
+// piped commands can be the next exercise for me.
+//
 /* Hold info of all processes to spawn */
 struct PipeList {
   struct PipeList *Next;
@@ -639,6 +645,7 @@ void exec_cmd(char *cmd) {
   // system cmd
   else {
     if (is_piped(p.proc)) {
+      // execute a piped command.
       exec_pipe(p.proc);
     } else {
       exec_sys_cmd(p);
